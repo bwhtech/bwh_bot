@@ -3,6 +3,9 @@ from frappe.utils import add_months, get_first_day, get_last_day, today
 
 from bwh_bot.telegram_utils import broadcast_to_whitelisted_chats
 
+OFFICE_BRANCH = "Jagdalpur HQ"
+OFFICE_EMPLOYMENT_TYPE = "Full-time"
+
 
 def _format_date_range(from_date, to_date):
 	from_str = frappe.utils.formatdate(from_date, "d MMM")
@@ -39,31 +42,38 @@ def send_daily_leave_notification():
 	broadcast_to_whitelisted_chats(message)
 
 
-def send_daily_wfh_notification():
-	"""Daily cron: notify whitelisted chats about employees working from home today."""
+def send_daily_office_notification():
+	"""Daily cron: notify whitelisted chats about employees coming to the office today."""
 	current_day = today()
-	requests = frappe.get_all(
-		"Attendance Request",
+	wfh_employees = set(
+		frappe.get_all(
+			"Attendance Request",
+			filters={
+				"docstatus": 1,
+				"reason": "Work From Home",
+				"from_date": ["<=", current_day],
+				"to_date": [">=", current_day],
+			},
+			pluck="employee",
+		)
+	)
+	employees = frappe.get_all(
+		"Employee",
 		filters={
-			"docstatus": 1,
-			"reason": "Work From Home",
-			"from_date": ["<=", current_day],
-			"to_date": [">=", current_day],
+			"status": "Active",
+			"employment_type": OFFICE_EMPLOYMENT_TYPE,
+			"branch": OFFICE_BRANCH,
 		},
-		fields=["employee_name", "from_date", "to_date", "custom_total_wfh_days"],
+		fields=["name", "employee_name"],
 		order_by="employee_name asc",
 	)
+	office_employees = [employee for employee in employees if employee.name not in wfh_employees]
 
-	if not requests:
+	if not office_employees:
 		return
 
-	lines = []
-	for req in requests:
-		date_range = _format_date_range(req.from_date, req.to_date)
-		half_day_text = " · Half Day" if req.custom_total_wfh_days == 0.5 else ""
-		lines.append(f"• <b>{req.employee_name}</b> ({date_range}){half_day_text}")
-
-	message = "🏠 <b>Working From Home Today</b>\n\n" + "\n".join(lines)
+	lines = [f"• <b>{employee.employee_name}</b>" for employee in office_employees]
+	message = "🏢 <b>People Coming to Office Today</b>\n\n" + "\n".join(lines)
 	broadcast_to_whitelisted_chats(message)
 
 
