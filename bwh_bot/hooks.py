@@ -148,14 +148,14 @@ doc_events = {
 # Cron times are evaluated in the server's timezone.
 scheduler_events = {
 	"cron": {
-		# 10:30 AM — who is on leave and who is working from home today
+		# 10:30 AM — who is on leave and who is coming to the office today
 		"30 10 * * *": [
 			"bwh_bot.tasks.send_daily_leave_notification",
-			"bwh_bot.tasks.send_daily_wfh_notification",
+			"bwh_bot.tasks.send_daily_office_notification",
 		],
-		# 3:00 PM — second WFH reminder for the day
+		# 3:00 PM — second office reminder for the day
 		"0 15 * * *": [
-			"bwh_bot.tasks.send_daily_wfh_notification",
+			"bwh_bot.tasks.send_daily_office_notification",
 		],
 	},
 	"monthly": ["bwh_bot.tasks.create_monthly_petty_cash_journal_entry"],
