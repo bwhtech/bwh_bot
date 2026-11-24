@@ -1,4 +1,5 @@
 import frappe
+from erpnext.setup.doctype.employee.employee import is_holiday
 from frappe.utils import add_months, get_first_day, get_last_day, today
 
 from bwh_bot.telegram_utils import broadcast_to_whitelisted_chats
@@ -25,9 +26,10 @@ def send_daily_leave_notification():
 			"from_date": ["<=", current_day],
 			"to_date": [">=", current_day],
 		},
-		fields=["employee_name", "leave_type", "from_date", "to_date", "half_day"],
+		fields=["employee", "employee_name", "leave_type", "from_date", "to_date", "half_day"],
 		order_by="employee_name asc",
 	)
+	leaves = [leave for leave in leaves if not is_holiday(leave.employee, raise_exception=False)]
 
 	if not leaves:
 		return
@@ -44,8 +46,34 @@ def send_daily_leave_notification():
 
 def send_daily_office_notification():
 	"""Daily cron: notify whitelisted chats about employees coming to the office today."""
+	away_employees = _get_wfh_employees() | _get_employees_with_leave_application()
+	employees = frappe.get_all(
+		"Employee",
+		filters={
+			"status": "Active",
+			"employment_type": OFFICE_EMPLOYMENT_TYPE,
+			"branch": OFFICE_BRANCH,
+		},
+		fields=["name", "employee_name"],
+		order_by="employee_name asc",
+	)
+	office_employees = [
+		employee
+		for employee in employees
+		if employee.name not in away_employees and not is_holiday(employee.name, raise_exception=False)
+	]
+
+	if not office_employees:
+		return
+
+	lines = [f"• <b>{employee.employee_name}</b>" for employee in office_employees]
+	message = "🏢 <b>People Coming to Office Today</b>\n\n" + "\n".join(lines)
+	broadcast_to_whitelisted_chats(message)
+
+
+def _get_wfh_employees():
 	current_day = today()
-	wfh_employees = set(
+	return set(
 		frappe.get_all(
 			"Attendance Request",
 			filters={
@@ -57,24 +85,22 @@ def send_daily_office_notification():
 			pluck="employee",
 		)
 	)
-	employees = frappe.get_all(
-		"Employee",
-		filters={
-			"status": "Active",
-			"employment_type": OFFICE_EMPLOYMENT_TYPE,
-			"branch": OFFICE_BRANCH,
-		},
-		fields=["name", "employee_name"],
-		order_by="employee_name asc",
+
+
+def _get_employees_with_leave_application():
+	current_day = today()
+	return set(
+		frappe.get_all(
+			"Leave Application",
+			filters={
+				"docstatus": ["<", 2],
+				"status": ["not in", ["Rejected", "Cancelled"]],
+				"from_date": ["<=", current_day],
+				"to_date": [">=", current_day],
+			},
+			pluck="employee",
+		)
 	)
-	office_employees = [employee for employee in employees if employee.name not in wfh_employees]
-
-	if not office_employees:
-		return
-
-	lines = [f"• <b>{employee.employee_name}</b>" for employee in office_employees]
-	message = "🏢 <b>People Coming to Office Today</b>\n\n" + "\n".join(lines)
-	broadcast_to_whitelisted_chats(message)
 
 
 def create_monthly_petty_cash_journal_entry():
